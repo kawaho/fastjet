@@ -1658,6 +1658,8 @@ PYBIND11_MODULE(_ext, m) {
         std::vector<double> jet_groomed_m;
         std::vector<double> jet_groomed_E;
         std::vector<double> jet_groomed_pz;
+        std::vector<double> jet_groomed_delta_R;
+        std::vector<double> jet_groomed_symmetry;
 
         fastjet::contrib::RecursiveSymmetryCutBase::SymmetryMeasure sym_meas = fastjet::contrib::RecursiveSymmetryCutBase::SymmetryMeasure::scalar_z;
         if (symmetry_measure == "scalar_z") {
@@ -1703,6 +1705,14 @@ PYBIND11_MODULE(_ext, m) {
             jet_groomed_m.push_back(soft.m());
             jet_groomed_E.push_back(soft.E());
             jet_groomed_pz.push_back(soft.pz());
+            if (soft.constituents().size() > 1){
+              jet_groomed_delta_R.push_back(soft.structure_of<fastjet::contrib::SoftDrop>().delta_R());
+              jet_groomed_symmetry.push_back(soft.structure_of<fastjet::contrib::SoftDrop>().symmetry());
+            }
+            else {
+              jet_groomed_delta_R.push_back(-1);
+              jet_groomed_symmetry.push_back(-1);
+            }
             for (unsigned int k = 0; k < soft.constituents().size(); k++){
               consts_groomed_px.push_back(soft.constituents()[k].px());
               consts_groomed_py.push_back(soft.constituents()[k].py());
@@ -1723,6 +1733,8 @@ PYBIND11_MODULE(_ext, m) {
         auto jet_m = py::array(jet_groomed_m.size(), jet_groomed_m.data());
         auto jet_E = py::array(jet_groomed_E.size(), jet_groomed_E.data());
         auto jet_pz = py::array(jet_groomed_pz.size(), jet_groomed_pz.data());
+        auto jet_delta_R = py::array(jet_groomed_delta_R.size(), jet_groomed_delta_R.data());
+        auto jet_symmetry = py::array(jet_groomed_symmetry.size(), jet_groomed_symmetry.data());
 
         return std::make_tuple(
             consts_px,
@@ -1735,7 +1747,9 @@ PYBIND11_MODULE(_ext, m) {
             jet_phi,
             jet_m,
             jet_E,
-            jet_pz
+            jet_pz,
+            jet_delta_R,
+            jet_symmetry
           );
       }, R"pbdoc(
         Performs softdrop pruning on jets.
@@ -1836,6 +1850,10 @@ PYBIND11_MODULE(_ext, m) {
         auto lund_generator = fastjet::contrib::LundGenerator();
         std::vector<double> Delta_vec;
         std::vector<double> kt_vec;
+        std::vector<double> emission_px_vec;
+        std::vector<double> emission_py_vec;
+        std::vector<double> emission_pz_vec;
+        std::vector<double> emission_E_vec;
 
         auto eventoffsets = py::array(py::buffer_info(nullptr, sizeof(int), py::format_descriptor<int>::value, 1, {len+1}, {sizeof(int)}));
         auto bufeventoffsets = eventoffsets.request();
@@ -1864,6 +1882,12 @@ PYBIND11_MODULE(_ext, m) {
             for (unsigned int k = 0; k < splittings; k++){
               Delta_vec.push_back(lund_result[k].Delta());
               kt_vec.push_back(lund_result[k].kt());
+
+              auto emission = lund_result[k].softer();
+              emission_px_vec.push_back(emission.px());
+              emission_py_vec.push_back(emission.py());
+              emission_pz_vec.push_back(emission.pz());
+              emission_E_vec.push_back(emission.E());
             }
 
             ptrjetoffsets[jetidx] = splittings + prev;
@@ -1879,10 +1903,19 @@ PYBIND11_MODULE(_ext, m) {
         auto Deltas = py::array(Delta_vec.size(), Delta_vec.data());
         auto kts = py::array(kt_vec.size(), kt_vec.data());
 
+        auto emission_px = py::array(emission_px_vec.size(), emission_px_vec.data());
+        auto emission_py = py::array(emission_py_vec.size(), emission_py_vec.data());
+        auto emission_pz = py::array(emission_pz_vec.size(), emission_pz_vec.data());
+        auto emission_E = py::array(emission_E_vec.size(), emission_E_vec.data());
+
         return std::make_tuple(
             jetoffsets,
             Deltas,
             kts,
+            emission_px,
+            emission_py,
+            emission_pz,
+            emission_E,
             eventoffsets
           );
       }, "n_jets"_a = 0, R"pbdoc(

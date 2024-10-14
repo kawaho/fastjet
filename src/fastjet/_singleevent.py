@@ -248,6 +248,8 @@ class _classsingleevent:
         jetmass = ak.Array(ak.contents.NumpyArray(np_results[8]))
         jetE = ak.Array(ak.contents.NumpyArray(np_results[9]))
         jetpz = ak.Array(ak.contents.NumpyArray(np_results[10]))
+        jetdeltaR = ak.Array(ak.contents.NumpyArray(np_results[11]))
+        jetsymmetry = ak.Array(ak.contents.NumpyArray(np_results[12]))
 
         out = ak.zip(
             {
@@ -260,6 +262,8 @@ class _classsingleevent:
                 "phisoftdrop": jetphi,
                 "Esoftdrop": jetE,
                 "pzsoftdrop": jetpz,
+                "deltaRsoftdrop": jetdeltaR,
+                "symmetrysoftdrop": jetsymmetry,
             },
             depth_limit=1,
         )
@@ -303,8 +307,12 @@ class _classsingleevent:
                     (
                         ak.contents.NumpyArray(np_results[1]),
                         ak.contents.NumpyArray(np_results[2]),
+                        ak.contents.NumpyArray(np_results[3]),
+                        ak.contents.NumpyArray(np_results[4]),
+                        ak.contents.NumpyArray(np_results[5]),
+                        ak.contents.NumpyArray(np_results[6])
                     ),
-                    ("Delta", "kt"),
+                    ("Delta", "kt", "emission_px", "emission_py", "emission_pz", "emission_E"),
                 ),
             )
         )
