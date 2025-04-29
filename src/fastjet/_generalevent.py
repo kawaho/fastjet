@@ -557,9 +557,13 @@ class _classgeneralevent:
                             ak.contents.NumpyArray(np_results[3]),
                             ak.contents.NumpyArray(np_results[4]),
                             ak.contents.NumpyArray(np_results[5]),
-                            ak.contents.NumpyArray(np_results[6])
+                            ak.contents.NumpyArray(np_results[6]),
+                            ak.contents.NumpyArray(np_results[7]),
+                            ak.contents.NumpyArray(np_results[8]),
+                            ak.contents.NumpyArray(np_results[9]),
+                            ak.contents.NumpyArray(np_results[10])
                         ),
-                        ("Delta", "kt", "emission_px", "emission_py", "emission_pz", "emission_E"),
+                        ("Delta", "kt", "emission_px", "emission_py", "emission_pz", "emission_E", "pair_px", "pair_py", "pair_pz", "pair_E"),
                     ),
                 ),
                 behavior=self.data.behavior,

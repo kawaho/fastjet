@@ -1854,6 +1854,10 @@ PYBIND11_MODULE(_ext, m) {
         std::vector<double> emission_py_vec;
         std::vector<double> emission_pz_vec;
         std::vector<double> emission_E_vec;
+        std::vector<double> pair_px_vec;
+        std::vector<double> pair_py_vec;
+        std::vector<double> pair_pz_vec;
+        std::vector<double> pair_E_vec;
 
         auto eventoffsets = py::array(py::buffer_info(nullptr, sizeof(int), py::format_descriptor<int>::value, 1, {len+1}, {sizeof(int)}));
         auto bufeventoffsets = eventoffsets.request();
@@ -1888,6 +1892,12 @@ PYBIND11_MODULE(_ext, m) {
               emission_py_vec.push_back(emission.py());
               emission_pz_vec.push_back(emission.pz());
               emission_E_vec.push_back(emission.E());
+
+              auto pair = lund_result[k].pair();
+              pair_px_vec.push_back(pair.px());
+              pair_py_vec.push_back(pair.py());
+              pair_pz_vec.push_back(pair.pz());
+              pair_E_vec.push_back(pair.E());
             }
 
             ptrjetoffsets[jetidx] = splittings + prev;
@@ -1908,6 +1918,11 @@ PYBIND11_MODULE(_ext, m) {
         auto emission_pz = py::array(emission_pz_vec.size(), emission_pz_vec.data());
         auto emission_E = py::array(emission_E_vec.size(), emission_E_vec.data());
 
+        auto pair_px = py::array(pair_px_vec.size(), pair_px_vec.data());
+        auto pair_py = py::array(pair_py_vec.size(), pair_py_vec.data());
+        auto pair_pz = py::array(pair_pz_vec.size(), pair_pz_vec.data());
+        auto pair_E = py::array(pair_E_vec.size(), pair_E_vec.data());
+
         return std::make_tuple(
             jetoffsets,
             Deltas,
@@ -1916,6 +1931,10 @@ PYBIND11_MODULE(_ext, m) {
             emission_py,
             emission_pz,
             emission_E,
+            pair_px,
+            pair_py,
+            pair_pz,
+            pair_E,
             eventoffsets
           );
       }, "n_jets"_a = 0, R"pbdoc(

@@ -17,4 +17,8 @@ cd ..
 
 rm -rf src/fastjet/_fastjet_core/
 
+export CXXFLAGS="-I${CONDA_PREFIX}/include -L${CONDA_PREFIX}/lib -g"
+export CPPFLAGS="-I${CONDA_PREFIX}/include -L${CONDA_PREFIX}/lib -g"
+export CFLAGS="-I${CONDA_PREFIX}/include -L${CONDA_PREFIX}/lib -g"
+export LDFLAGS="-L${CONDA_PREFIX}/lib"
 python -m pip install --upgrade --verbose .
