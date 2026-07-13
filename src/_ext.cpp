@@ -2,8 +2,10 @@
 // https://github.com/scikit-hep/fastjet/blob/main/LICENSE
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <unordered_map>
 #include <vector>
 
@@ -15,6 +17,7 @@
 #include <fastjet/PseudoJet.hh>
 #include <fastjet/contrib/EnergyCorrelator.hh>
 #include <fastjet/contrib/LundGenerator.hh>
+#include <fastjet/contrib/Njettiness.hh>
 #include <fastjet/contrib/SoftDrop.hh>
 
 #include <pybind11/numpy.h>
@@ -26,6 +29,58 @@ namespace fj = fastjet;
 namespace py = pybind11;
 using namespace pybind11::literals;
 
+// adapted from
+// https://github.com/cms-svj/SVJProduction/blob/Run3/interface/NjettinessHelper.h
+namespace njettiness {
+enum MeasureDefinition_t {
+  NormalizedMeasure = 0,     // (beta,R0)
+  UnnormalizedMeasure,       // (beta)
+  OriginalGeometricMeasure,  // (beta)
+  NormalizedCutoffMeasure,   // (beta,R0,Rcutoff)
+  UnnormalizedCutoffMeasure, // (beta,Rcutoff)
+  GeometricCutoffMeasure,    // (beta,Rcutoff)
+  N_MEASURE_DEFINITIONS
+};
+enum AxesDefinition_t {
+  KT_Axes = 0,
+  CA_Axes,
+  AntiKT_Axes, // (axAxesR0)
+  WTA_KT_Axes,
+  WTA_CA_Axes,
+  Manual_Axes,
+  OnePass_KT_Axes,
+  OnePass_CA_Axes,
+  OnePass_AntiKT_Axes, // (axAxesR0)
+  OnePass_WTA_KT_Axes,
+  OnePass_WTA_CA_Axes,
+  OnePass_Manual_Axes,
+  MultiPass_Axes,
+  N_AXES_DEFINITIONS
+};
+const std::unordered_map<std::string, MeasureDefinition_t>
+    measure_def_names_to_enum = {
+        {"NormalizedMeasure", NormalizedMeasure},
+        {"UnnormalizedMeasure", UnnormalizedMeasure},
+        {"OriginalGeometricMeasure", OriginalGeometricMeasure},
+        {"NormalizedCutoffMeasure", NormalizedCutoffMeasure},
+        {"UnnormalizedCutoffMeasure", UnnormalizedCutoffMeasure},
+        {"GeometricCutoffMeasure", GeometricCutoffMeasure}};
+const std::unordered_map<std::string, AxesDefinition_t> axis_def_names_to_enum =
+    {{"KT_Axes", KT_Axes},
+     {"CA_Axes", CA_Axes},
+     {"AntiKT_Axes", AntiKT_Axes},
+     {"WTA_KT_Axes", WTA_KT_Axes},
+     {"WTA_CA_Axes", WTA_CA_Axes},
+     {"Manual_Axes", Manual_Axes},
+     {"OnePass_KT_Axes", OnePass_KT_Axes},
+     {"OnePass_CA_Axes", OnePass_CA_Axes},
+     {"OnePass_AntiKT_Axes", OnePass_AntiKT_Axes},
+     {"OnePass_WTA_KT_Axes", OnePass_WTA_KT_Axes},
+     {"OnePass_WTA_CA_Axes", OnePass_WTA_CA_Axes},
+     {"OnePass_Manual_Axes", OnePass_Manual_Axes},
+     {"MultiPass_Axes", MultiPass_Axes}};
+} // namespace njettiness
+
 typedef struct {
   PyObject_HEAD void *ptr;
   void *ty;
@@ -33,9 +88,9 @@ typedef struct {
   PyObject *next;
 } SwigPyObject;
 
-template <typename T>
-T swigtocpp(py::object obj) { // unwraps python object to get the cpp pointer
-                              // from the swig bindings
+template <typename T> T swigtocpp(py::object obj) {
+  // unwraps python object to get the cpp pointer
+  // from the swig bindings
   auto upointer = obj.attr("this").ptr();
   auto swigpointer = reinterpret_cast<SwigPyObject *>(upointer);
   auto objpointervoid = swigpointer->ptr;
@@ -59,47 +114,44 @@ output_wrapper interfacemulti(
     py::array_t<double, py::array::c_style | py::array::forcecast> pyi,
     py::array_t<double, py::array::c_style | py::array::forcecast> pzi,
     py::array_t<double, py::array::c_style | py::array::forcecast> Ei,
-    py::array_t<int, py::array::c_style | py::array::forcecast> offsets,
+    py::array_t<int, py::array::c_style | py::array::forcecast> starts,
+    py::array_t<int, py::array::c_style | py::array::forcecast> stops,
     py::object jetdef) {
-  py::buffer_info infooff = offsets.request();
+  // requesting buffer information of the input
+  py::buffer_info infostarts = starts.request();
+  py::buffer_info infostops = stops.request();
   py::buffer_info infopx = pxi.request();
-  py::buffer_info infopy =
-      pyi.request(); // requesting buffer information of the input
+  py::buffer_info infopy = pyi.request();
   py::buffer_info infopz = pzi.request();
   py::buffer_info infoE = Ei.request();
 
-  auto offptr = static_cast<int *>(infooff.ptr);
+  // pointers to the initial values
+  auto startsptr = static_cast<int *>(infostarts.ptr);
+  auto stopsptr = static_cast<int *>(infostops.ptr);
   auto pxptr = static_cast<double *>(infopx.ptr);
-  auto pyptr =
-      static_cast<double *>(infopy.ptr); // pointer to the initial value
+  auto pyptr = static_cast<double *>(infopy.ptr);
   auto pzptr = static_cast<double *>(infopz.ptr);
   auto Eptr = static_cast<double *>(infoE.ptr);
 
-  int dimoff = infooff.shape[0];
+  int dimoff = infostarts.shape[0];
   output_wrapper ow;
-  std::vector<double> nevents;
-  std::vector<double> offidx;
-  std::vector<double> constphi;
-  std::vector<double> idx;
-  std::vector<double> idxo;
-  for (int i = 0; i < dimoff - 1; i++) {
+  for (int i = 0; i < dimoff; i++) {
     std::vector<fj::PseudoJet> particles;
-    for (int j = *offptr; j < *(offptr + 1); j++) {
+    for (int j = *startsptr; j < *stopsptr; j++) {
       particles.push_back(fj::PseudoJet(*pxptr, *pyptr, *pzptr, *Eptr));
       pxptr++;
       pyptr++;
       pzptr++;
       Eptr++;
     }
-
     std::vector<fj::PseudoJet> jets;
     auto jet_def = swigtocpp<fj::JetDefinition *>(jetdef);
     std::shared_ptr<std::vector<fj::PseudoJet>> pj =
         std::make_shared<std::vector<fj::PseudoJet>>(particles);
     std::shared_ptr<fastjet::ClusterSequence> cs =
         std::make_shared<fastjet::ClusterSequence>(*pj, *jet_def);
-    auto j = cs->inclusive_jets();
-    offptr++;
+    startsptr++;
+    stopsptr++;
     ow.cse.push_back(cs);
     ow.parts.push_back(pj);
   }
@@ -1692,27 +1744,39 @@ PYBIND11_MODULE(_ext, m) {
           rec_choice = fastjet::contrib::RecursiveSymmetryCutBase::RecursionChoice::larger_E;
         }
 
-        fastjet::contrib::SoftDrop* sd = new fastjet::contrib::SoftDrop(beta, symmetry_cut, sym_meas, R0, mu_cut, rec_choice/*, subtractor*/);
+        auto sd = std::make_shared<fastjet::contrib::SoftDrop>(beta, symmetry_cut, sym_meas, R0, mu_cut, rec_choice/*, subtractor*/);
 
         for (unsigned int i = 0; i < css.size(); i++){  // iterate through events
           auto jets = css[i]->exclusive_jets(n_jets);
           for (unsigned int j = 0; j < jets.size(); j++){
             auto soft = sd->result(jets[j]);
+            if( soft != 0 ) {
+              jet_groomed_pt.push_back(soft.pt());
+              jet_groomed_eta.push_back(soft.eta());
+              jet_groomed_phi.push_back(soft.phi());
+              jet_groomed_m.push_back(soft.m());
+              jet_groomed_E.push_back(soft.E());
+              jet_groomed_pz.push_back(soft.pz());
+
+              // horrificaly dangerous hack around the fact that
+              // fastjet's custom sharedptr doesn't obey const
+              // correctness and this makes llvm-gcc very sad
+              fastjet::PseudoJetStructureBase* structure_ptr = soft.structure_non_const_ptr();
+              fastjet::contrib::SoftDrop::StructureType* as_sd = (fastjet::contrib::SoftDrop::StructureType*)structure_ptr;
+              jet_groomed_delta_R.push_back(as_sd->delta_R());
+              jet_groomed_symmetry.push_back(as_sd->symmetry());
+            } else {
+               jet_groomed_pt.push_back(std::numeric_limits<double>::quiet_NaN());
+               jet_groomed_eta.push_back(std::numeric_limits<double>::quiet_NaN());
+               jet_groomed_phi.push_back(std::numeric_limits<double>::quiet_NaN());
+               jet_groomed_m.push_back(std::numeric_limits<double>::quiet_NaN());
+               jet_groomed_E.push_back(std::numeric_limits<double>::quiet_NaN());
+               jet_groomed_pz.push_back(std::numeric_limits<double>::quiet_NaN());
+               jet_groomed_delta_R.push_back(std::numeric_limits<double>::quiet_NaN());
+               jet_groomed_symmetry.push_back(std::numeric_limits<double>::quiet_NaN());
+            }
+
             nconstituents.push_back(soft.constituents().size());
-            jet_groomed_pt.push_back(soft.pt());
-            jet_groomed_eta.push_back(soft.eta());
-            jet_groomed_phi.push_back(soft.phi());
-            jet_groomed_m.push_back(soft.m());
-            jet_groomed_E.push_back(soft.E());
-            jet_groomed_pz.push_back(soft.pz());
-            if (soft.constituents().size() > 1){
-              jet_groomed_delta_R.push_back(soft.structure_of<fastjet::contrib::SoftDrop>().delta_R());
-              jet_groomed_symmetry.push_back(soft.structure_of<fastjet::contrib::SoftDrop>().symmetry());
-            }
-            else {
-              jet_groomed_delta_R.push_back(-1);
-              jet_groomed_symmetry.push_back(-1);
-            }
             for (unsigned int k = 0; k < soft.constituents().size(); k++){
               consts_groomed_px.push_back(soft.constituents()[k].px());
               consts_groomed_py.push_back(soft.constituents()[k].py());
@@ -2323,6 +2387,93 @@ PYBIND11_MODULE(_ext, m) {
           None.
         Returns:
           pt, eta, phi, m of inclusive jets.
+      )pbdoc")
+    .def("to_numpy_njettiness",
+      [](
+         const output_wrapper ow,
+         const std::string& measure_definition,
+         const std::string& axes_definition,
+         const std::vector<unsigned int>& njets,
+         const double beta,
+         const double R0,
+         const double Rcutoff,
+         const int nPass,
+         const double akAxesR0
+      ) {
+        auto maybe_measdef = njettiness::measure_def_names_to_enum.find(measure_definition);
+        const auto measdefenum = maybe_measdef == njettiness::measure_def_names_to_enum.end() ? njettiness::NormalizedMeasure : maybe_measdef->second;
+
+        auto maybe_axesdef = njettiness::axis_def_names_to_enum.find(axes_definition);
+        const auto axesdefenum = maybe_axesdef == njettiness::axis_def_names_to_enum.end() ? njettiness::KT_Axes : maybe_axesdef->second;
+
+        // Get the measure definition
+        fastjet::contrib::NormalizedMeasure          normalizedMeasure        (beta, R0);
+        fastjet::contrib::UnnormalizedMeasure        unnormalizedMeasure      (beta);
+        fastjet::contrib::OriginalGeometricMeasure   geometricMeasure         (beta);
+        fastjet::contrib::NormalizedCutoffMeasure    normalizedCutoffMeasure  (beta, R0, Rcutoff);
+        fastjet::contrib::UnnormalizedCutoffMeasure  unnormalizedCutoffMeasure(beta, Rcutoff);
+
+        fastjet::contrib::MeasureDefinition const * measureDef = 0;
+        switch ( measdefenum ) {
+          case njettiness::UnnormalizedMeasure         : measureDef = &unnormalizedMeasure; break;
+          case njettiness::OriginalGeometricMeasure    : measureDef = &geometricMeasure; break;
+          case njettiness::NormalizedCutoffMeasure     : measureDef = &normalizedCutoffMeasure; break;
+          case njettiness::UnnormalizedCutoffMeasure   : measureDef = &unnormalizedCutoffMeasure; break;
+          case njettiness::NormalizedMeasure : default : measureDef = &normalizedMeasure; break;
+        }
+
+        // Get the axes definition
+        fastjet::contrib::KT_Axes             kt_axes;
+        fastjet::contrib::CA_Axes             ca_axes;
+        fastjet::contrib::AntiKT_Axes         antikt_axes        (akAxesR0);
+        fastjet::contrib::WTA_KT_Axes         wta_kt_axes;
+        fastjet::contrib::WTA_CA_Axes         wta_ca_axes;
+        fastjet::contrib::OnePass_KT_Axes     onepass_kt_axes;
+        fastjet::contrib::OnePass_CA_Axes     onepass_ca_axes;
+        fastjet::contrib::OnePass_AntiKT_Axes onepass_antikt_axes(akAxesR0);
+        fastjet::contrib::OnePass_WTA_KT_Axes onepass_wta_kt_axes;
+        fastjet::contrib::OnePass_WTA_CA_Axes onepass_wta_ca_axes;
+        fastjet::contrib::MultiPass_Axes      multipass_axes     (nPass);
+
+        fastjet::contrib::AxesDefinition const * axesDef = 0;
+        switch ( axesdefenum ) {
+          case  njettiness::KT_Axes : default   : axesDef = &kt_axes; break;
+          case  njettiness::CA_Axes             : axesDef = &ca_axes; break;
+          case  njettiness::AntiKT_Axes         : axesDef = &antikt_axes; break;
+          case  njettiness::WTA_KT_Axes         : axesDef = &wta_kt_axes; break;
+          case  njettiness::WTA_CA_Axes         : axesDef = &wta_ca_axes; break;
+          case  njettiness::OnePass_KT_Axes     : axesDef = &onepass_kt_axes; break;
+          case  njettiness::OnePass_CA_Axes     : axesDef = &onepass_ca_axes; break;
+          case  njettiness::OnePass_AntiKT_Axes : axesDef = &onepass_antikt_axes; break;
+          case  njettiness::OnePass_WTA_KT_Axes : axesDef = &onepass_wta_kt_axes; break;
+          case  njettiness::OnePass_WTA_CA_Axes : axesDef = &onepass_wta_ca_axes; break;
+          case  njettiness::MultiPass_Axes      : axesDef = &multipass_axes; break;
+        }
+
+        auto routine = std::make_shared<fastjet::contrib::Njettiness>(*axesDef, *measureDef);
+
+        const auto& constituents = ow.parts;
+        std::vector<double> taus;
+
+        for (size_t i = 0; i < constituents.size(); ++i) {
+            for(size_t k = 0; k < njets.size(); ++k) {
+              auto tau = routine->getTau(njets[k], *constituents[i]);
+              taus.push_back(tau);
+            }
+        }
+
+        auto taus_out = py::array(taus.size(), taus.data());
+        taus_out.resize({taus.size()/njets.size(), njets.size()});
+
+        return std::make_tuple(
+          taus_out
+        );
+      }, R"pbdoc(
+        Calculates njettiness values from inputs and converts them to numpy arrays.
+        Args:
+          None.
+        Returns:
+          the <njets>-tuple of njettiness values for all found jets, and their offsets
       )pbdoc");
   py::class_<ClusterSequence>(m, "ClusterSequence")
       .def(py::init<const std::vector<PseudoJet> &, const JetDefinition &,

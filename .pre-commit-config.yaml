@@ -6,13 +6,8 @@ ci:
     autoupdate_commit_msg: 'ci(pre-commit): pre-commit autoupdate'
 
 repos:
-- repo: https://github.com/psf/black-pre-commit-mirror
-  rev: 24.4.2
-  hooks:
-  - id: black
-
 - repo: https://github.com/pre-commit/pre-commit-hooks
-  rev: v4.6.0
+  rev: v6.0.0
   hooks:
   - id: check-added-large-files
   - id: check-case-conflict
@@ -26,36 +21,30 @@ repos:
   - id: trailing-whitespace
 
 - repo: https://github.com/PyCQA/isort
-  rev: 5.13.2
+  rev: 9.0.0a3
   hooks:
   - id: isort
 
 - repo: https://github.com/asottile/pyupgrade
-  rev: v3.16.0
+  rev: v3.21.2
   hooks:
   - id: pyupgrade
-    args: ["--py36-plus"]
+    args: ["--py310-plus"]
 
 - repo: https://github.com/asottile/setup-cfg-fmt
-  rev: v2.5.0
+  rev: v3.2.0
   hooks:
   - id: setup-cfg-fmt
 
-- repo: https://github.com/pycqa/flake8
-  rev: 7.1.0
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  rev: v0.15.12
   hooks:
-  - id: flake8
-    exclude: docs/conf.py
-    additional_dependencies: [flake8-bugbear, flake8-print]
-
-- repo: https://github.com/mgedmin/check-manifest
-  rev: "0.49"
-  hooks:
-  - id: check-manifest
-    stages: [manual]
+  - id: ruff-check
+    args: [--fix, --show-fixes]
+  - id: ruff-format
 
 - repo: https://github.com/pre-commit/mirrors-clang-format
-  rev: "v18.1.7"
+  rev: "v22.1.5"
   hooks:
     - id: clang-format
       types_or: [c++, c, cuda]

@@ -5,19 +5,23 @@ import numpy as np
 
 import fastjet._ext  # noqa: F401, E402
 
+_default_taus_njettiness = [1, 2, 3, 4]
+
 
 class _classmultievent:
     def __init__(self, data, jetdef):
         self.jetdef = jetdef
-        # data = ak.Array(data.layout.to_ListOffsetArray64(True)) If I do this vector can't convert the coordinates
         self.data = data
-        px, py, pz, E, offsets = self.extract_cons(self.data)
+        px, py, pz, E, starts, stops = self.extract_cons(self.data)
         px = self.correct_byteorder(px)
         py = self.correct_byteorder(py)
         pz = self.correct_byteorder(pz)
         E = self.correct_byteorder(E)
-        offsets = self.correct_byteorder(offsets)
-        self._results = fastjet._ext.interfacemulti(px, py, pz, E, offsets, jetdef)
+        starts = self.correct_byteorder(starts)
+        stops = self.correct_byteorder(stops)
+        self._results = fastjet._ext.interfacemulti(
+            px, py, pz, E, starts, stops, jetdef
+        )
 
     def _check_record(self, data):
         return data.layout.is_record or data.layout.is_numpy
@@ -34,9 +38,9 @@ class _classmultievent:
         py = np.asarray(ak.Array(array.layout.content, behavior=array.behavior).py)
         pz = np.asarray(ak.Array(array.layout.content, behavior=array.behavior).pz)
         E = np.asarray(ak.Array(array.layout.content, behavior=array.behavior).E)
-        off = np.asarray(array.layout.stops)
-        off = np.insert(off, 0, 0)
-        return px, py, pz, E, off
+        starts = np.asarray(array.layout.starts)
+        stops = np.asarray(array.layout.stops)
+        return px, py, pz, E, starts, stops
 
     def single_to_jagged(self, array):
         single = ak.Array(
@@ -52,7 +56,9 @@ class _classmultievent:
                     ["px", "py", "pz", "E"],
                     parameters={"__record__": "Momentum4D"},
                 ),
-            )
+            ),
+            behavior=array.behavior,
+            attrs=array.attrs,
         )
         return single
 
@@ -94,6 +100,7 @@ class _classmultievent:
                 ),
             ),
             behavior=self.data.behavior,
+            attrs=self.data.attrs,
         )
 
     def unclustered_particles(self):
@@ -114,6 +121,7 @@ class _classmultievent:
                 ),
             ),
             behavior=self.data.behavior,
+            attrs=self.data.attrs,
         )
 
     def exclusive_jets(self, n_jets, dcut):
@@ -145,6 +153,7 @@ class _classmultievent:
                 ),
             ),
             behavior=self.data.behavior,
+            attrs=self.data.attrs,
         )
 
     def exclusive_jets_up_to(self, n_jets):
@@ -168,6 +177,7 @@ class _classmultievent:
                 ),
             ),
             behavior=self.data.behavior,
+            attrs=self.data.attrs,
         )
 
     def exclusive_jets_ycut(self, ycut):
@@ -188,6 +198,7 @@ class _classmultievent:
                 ),
             ),
             behavior=self.data.behavior,
+            attrs=self.data.attrs,
         )
 
     def constituent_index(self, min_pt):
@@ -282,6 +293,44 @@ class _classmultievent:
                 "symmetrysoftdrop": jetsymmetry,
             },
             depth_limit=1,
+            behavior=self.data.behavior,
+            attrs=self.data.attrs,
+        )
+        return out
+
+    def njettiness(
+        self,
+        measure_definition="NormalizedMeasure",
+        axes_definition="OnePass_KT_Axes",
+        njets=_default_taus_njettiness,
+        beta=1.0,
+        R0=0.8,
+        Rcutoff=None,
+        nPass=None,
+        akAxesR0=None,
+    ):
+        if isinstance(njets, (int, float)):
+            njets = [njets]
+        if len(njets) == 0:
+            raise ValueError("Must provide at least one njets!")
+        if any(njet <= 0 for njet in njets):
+            raise ValueError("Requested njets must be > 0!")
+
+        double_max = 999.0
+        int_max = 999
+
+        np_results = self._results.to_numpy_njettiness(
+            measure_definition,
+            axes_definition,
+            njets,
+            beta,
+            R0,
+            Rcutoff or double_max,
+            nPass or int_max,
+            akAxesR0 or double_max,
+        )
+        out = ak.Array(
+            ak.contents.NumpyArray(np_results[0]),
         )
         return out
 
@@ -460,6 +509,7 @@ class _classmultievent:
                 ),
             ),
             behavior=self.data.behavior,
+            attrs=self.data.attrs,
         )
 
     def exclusive_subdmerge(self, data, nsub):
@@ -562,6 +612,7 @@ class _classmultievent:
                 ),
             ),
             behavior=self.data.behavior,
+            attrs=self.data.attrs,
         )
 
     def jets(self):
@@ -582,6 +633,7 @@ class _classmultievent:
                 ),
             ),
             behavior=self.data.behavior,
+            attrs=self.data.attrs,
         )
 
     def get_parents(self, data):
@@ -608,6 +660,7 @@ class _classmultievent:
                 ),
             ),
             behavior=self.data.behavior,
+            attrs=self.data.attrs,
         )
 
     def get_child(self, data):
@@ -634,4 +687,5 @@ class _classmultievent:
                 ),
             ),
             behavior=self.data.behavior,
+            attrs=self.data.attrs,
         )
